@@ -61,7 +61,6 @@
         return offset + sizeof(TAP_TRAILER);
     }
     
-    //TODO: Look for the SOF word and implement COBS!
     uint8_t TAP::tapSendTelem(const TAP_TELEMETRY &telemetry) {
         uint8_t buffer[255];
         TAP::TAP_ADDRESS_HEADER header;
@@ -96,4 +95,5 @@
 
 
     //This should be able to fail to detect a correct struct after unraveling the header
+    //TODO: Implement COBS decoding!!
     uint8_t* deserialize(uint8_t *raw_message, uint8_t* message);
