@@ -48,7 +48,7 @@
     }
     
     // From: https://stackoverflow.com/questions/10564491/function-to-calculate-a-crc16-checksum
-    uint16_t crc_16(uint8_t* message, uint16_t message_len){
+    uint16_t TAP::crc_16(uint8_t* message, uint16_t message_len){
         uint16_t out = 0;
         int bits_read = 0, bit_flag;
 
@@ -107,12 +107,12 @@
             //That makes a lot of sense and does not become confusing at any point.
             //Debug line
             //printf("Checking %02X %02X\n", message[i], message[i+1]);
-            if ((message[i] << 8 | message[i+1]) == __builtin_bswap16(TAP_SOF_WORD)){
+            if ((message[i] << 8 | message[i+1]) == TAP_SOF_WORD){
                 //Debug lines
                 //printf("FOUND ONE!\n");
                 //printf("Buffer bytes: %d and %d should be referenced in: %04X\n", i, i+1, cobs_last_filed_pos);
-                message[cobs_last_filed_pos] = (uint8_t)i;
-                message[cobs_last_filed_pos+1] = (uint8_t)i >> 8;
+                message[cobs_last_filed_pos+1] = (uint8_t)i;
+                message[cobs_last_filed_pos] = (uint8_t)i >> 8;
                 
                 //See, not confusing at all
                 cobs_last_filed_pos = (i);
@@ -120,8 +120,8 @@
                 //printf("Found one of the bastards!\n");
             }
             // If there are no more TAP_SOF_WORD usages, we set the pointer filed to 0
-            message[cobs_last_filed_pos] = (uint8_t)0x00;
             message[cobs_last_filed_pos+1] = (uint8_t)0x00;
+            message[cobs_last_filed_pos] = (uint8_t)0x00;
         }
         return TAP_OK;
     }
@@ -130,13 +130,26 @@
         uint8_t buffer[255];
         TAP::TAP_ADDRESS_HEADER header;
         TAP::TAP_TRAILER trailer;
-        header.sof_word = TAP_SOF_WORD;
+        header.target_id = TAP::target_id;
+        header.source_id = TAP::source_id;
+        header.sof_word = __builtin_bswap16(TAP_SOF_WORD);
         header.message_type = TELEMETRY;
         header.message_len = sizeof(TAP_TELEMETRY);
 
-        trailer.eof_word = TAP_SOF_WORD;
+        TAP_TELEMETRY telemetry_copy;
 
-        uint8_t len = serialize(&header, &telemetry, &trailer, buffer, sizeof(buffer));
+        //About making the floats big endian
+        //We have to trick the __builtint_bswap32 function into thinking these are integers
+        telemetry_copy.lat = flipFloatEndianness(telemetry.lat);
+        telemetry_copy.lon = flipFloatEndianness(telemetry.lon);
+        telemetry_copy.alt = __builtin_bswap16(telemetry.alt);
+        telemetry_copy.heading = __builtin_bswap16(telemetry.heading);
+        telemetry_copy.pitch = flipFloatEndianness(telemetry.pitch);
+        telemetry_copy.roll = flipFloatEndianness(telemetry.roll);
+
+        trailer.eof_word = __builtin_bswap16(TAP_SOF_WORD);
+
+        uint8_t len = serialize(&header, &telemetry_copy, &trailer, buffer, sizeof(buffer));
         if (len == 0) return TAP::TAP_ERROR_INVALID_LENGTH;
 
         for (uint8_t i = 0; i < len; i++) {
@@ -158,6 +171,18 @@
         return TAP_OK;
     }
 
+
+    //Puts a float into a uint32
+    //Flips the endianness
+    //Then puts it back into a float
+    //Yes, I hate it too
+    float TAP::flipFloatEndianness(float f) {
+        uint32_t u;
+        memcpy(&u, &f, sizeof(float));
+        u = __builtin_bswap32(u);
+        memcpy(&f, &u, sizeof(float));
+        return f;
+    }
 
     //This should be able to fail to detect a correct struct after unraveling the header
     //TODO: Implement COBS decoding!!
