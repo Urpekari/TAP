@@ -21,12 +21,14 @@
             //Too big for the allowed size!
             return TAP_ERROR_INVALID_LENGTH;
         }
+        TAP_ADDRESS_HEADER header_copy = *header;
+        header_copy.cobs = 0x0000;
         // Serialize header
-        memcpy(buffer, header, sizeof(TAP_ADDRESS_HEADER));
+        memcpy(buffer, &header_copy, sizeof(TAP_ADDRESS_HEADER));
         uint8_t offset = sizeof(TAP_ADDRESS_HEADER);
 
         // Serialize payload
-        memcpy(buffer + offset, payload, header->message_len);
+        memcpy(buffer + offset, payload, header_copy.message_len);
         offset += header->message_len;
 
         //We run the CRC check for the header and the payload, but not the trailer.
@@ -47,56 +49,39 @@
         return (full_byte_length);
     }
     
-    // From: https://stackoverflow.com/questions/10564491/function-to-calculate-a-crc16-checksum
     uint16_t TAP::crc_16(uint8_t* message, uint16_t message_len){
-        uint16_t out = 0;
-        int bits_read = 0, bit_flag;
 
-        /* Sanity check: */
-        if(message == NULL)
-            return 0;
+        /* DEBUGGING - THIS WAS A TOTAL PAIN IN THE ASS
+        printf("CRC intake:\n");
+        for(int i = 0; i<message_len; i++){
+            printf("%02X ", message[i]);
+        }
+        printf("\n");
+        */
 
-        while(message_len > 0)
+        uint16_t crc = 0xFFFF;
+        char i = 0;
+
+        while(message_len--)
         {
-            bit_flag = out >> 15;
+            crc ^= (*message++);
 
-            /* Get next bit: */
-            out <<= 1;
-            out |= (*message >> bits_read) & 1; // item a) work from the least significant bits
-
-            /* Increment bit counter: */
-            bits_read++;
-            if(bits_read > 7)
+            for(i = 0; i < 8; i++)
             {
-                bits_read = 0;
-                message++;
-                message_len--;
+                if( crc & 1 )
+                {
+                    crc >>= 1;
+                    crc ^= 0xA001;
+                }
+                else
+                {
+                    crc >>= 1;
+                }
             }
-
-            /* Cycle check: */
-            if(bit_flag)
-                out ^= CRC16;
         }
 
-        // item b) "push out" the last 16 bits
-        int i;
-        for (i = 0; i < 16; ++i) {
-            bit_flag = out >> 15;
-            out <<= 1;
-            if(bit_flag)
-                out ^= CRC16;
-        }
-
-        // item c) reverse the bits
-        uint16_t crc = 0;
-        i = 0x8000;
-        int j = 0x0001;
-        for (; i != 0; i >>=1, j <<= 1) {
-            if (i & out) crc |= j;
-        }
-        return crc;
+        return __builtin_bswap16(crc);
     }
-
 
     uint8_t TAP::tapCobs(uint8_t* message, uint16_t message_len){
         //COBS
