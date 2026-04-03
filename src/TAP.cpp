@@ -171,35 +171,55 @@
 
     //This should be able to fail to detect a correct struct after unraveling the header
     //TODO: Implement COBS decoding!!
-    uint8_t TAP::deserialize(uint8_t *raw_message, uint8_t message_len){
-        //First we determine what kind of header we've received
+    uint8_t TAP::deserialize(uint8_t *raw_message, uint8_t message_len, uint8_t* payload_type_out, uint8_t* payload_len_out, uint8_t* payload_buffer_out){
         TAP::TAP_ADDRESS_HEADER received_header;
+
+        printf("Provided buffer:\n");
+        for (uint8_t i = 8; i < message_len; i++) {
+            printf("%02X ", raw_message[i]);
+        }
+        printf("\n");
+
         memcpy(&received_header, raw_message, sizeof(TAP::TAP_ADDRESS_HEADER));
-        printf("Header type:%d\n", received_header.message_type);
         switch(received_header.message_type){
-            case 0:
+            case ACK_NACK:
                 printf("Acknowledgement!\n");
                 break;
-            case 1:
-                printf("Direct command!\n");
+            case DIRECT_COMMAND:
+                //This will take the payload out of the full message, and give it back separately.
+                //It also gives back the payload length and the payload type separately
+                //The controller is in charge of identifying the fields within the payload
+
+                if(received_header.message_len-sizeof(TAP_ADDRESS_HEADER) == sizeof(TAP_DIRECT_COMMAND)){
+                    TAP_DIRECT_COMMAND received_direct_command;
+                    *payload_type_out = received_header.message_type;
+                    *payload_len_out = received_header.message_len-sizeof(TAP_ADDRESS_HEADER);
+
+                    memcpy(payload_buffer_out, raw_message + sizeof(TAP_ADDRESS_HEADER), *payload_len_out);
+                    printf("CPP -> Out com bool: %d\n", (uint8_t)payload_buffer_out[2]);
+                }
                 break;
-            case 2:
-                printf("Indirect command!\n");
+            case INDIRECT_COMMAND:
+                //printf("Indirect command!\n");
                 break;
-            case 16:
+            case TELEMETRY:
                 //"But this is the thing that creates the telemetry data why can it dissect other telemetry"
                 //Because it's the only message we've finished so far. Screw you.
-                printf("Telemetry!\n");
-                printf("Header + Payload length: %d\n", received_header.message_len);
+                //printf("Telemetry!\n");
+                //printf("Header + Payload length: %d\n", received_header.message_len);
                 TAP_TELEMETRY received_telemetry;
                 memcpy(&received_telemetry, raw_message+sizeof(TAP_ADDRESS_HEADER), received_header.message_len - sizeof(TAP_ADDRESS_HEADER));
-                printf("GPS: %f, %f\n", flipFloatEndianness(received_telemetry.lat), flipFloatEndianness(received_telemetry.lon));
+                //printf("GPS: %f, %f\n", flipFloatEndianness(received_telemetry.lat), flipFloatEndianness(received_telemetry.lon));
                 break;
-            case 254:
+            case NEGOTIATE_DATALINK:
                 printf("Datalink negotiation!\n");
+                //The raspberry pi pico should throw these commands away at the moment, it does not manage the radio link at all.
+                //We trust serial - for now - to be reliable
                 break;
-            case 255:
+            case TELEMETRY_DATALINK:
                 printf("Datalink telemetry!\n");
+                //The raspberry pi pico should throw these commands away at the moment, it does not manage the radio link at all.
+                //We trust serial - for now - to be reliable
                 break;
             default:
                 return(TAP_ERROR_UNSUPPORTED_HEADER);

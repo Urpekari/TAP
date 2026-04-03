@@ -108,7 +108,7 @@ class TAP{
     };
     #pragma pack(pop)
 
-    #pragma pack(push, 2)
+    #pragma pack(push, 1)
     struct TAP_TELEMETRY{
         float lat;
         float lon;
@@ -119,7 +119,7 @@ class TAP{
     };
     #pragma pack(pop)
 
-    #pragma pack(push, 2)
+    #pragma pack(push, 1)
     struct TAP_DATALINK_TELEMETRY{
         uint16_t rssi;
         uint16_t snr;
@@ -130,7 +130,22 @@ class TAP{
     };
     #pragma pack(pop)
 
-    #pragma pack(push, 2)
+    #pragma pack(push, 1)
+    struct TAP_DIRECT_COMMAND{
+        uint16_t bools;
+        uint16_t RESERVED;
+        uint16_t channel_0;
+        uint16_t channel_1;
+        uint16_t channel_2;
+        uint16_t channel_3;
+        uint16_t channel_4;
+        uint16_t channel_5;
+        uint16_t channel_6;
+        uint16_t channel_7;
+    };
+    #pragma pack(pop)
+
+    #pragma pack(push, 1)
     struct TAP_INDIRECT_COMMAND{
         uint16_t bools;
         uint16_t reserved;
@@ -141,7 +156,7 @@ class TAP{
     };
     #pragma pack(pop)
 
-    #pragma pack(push, 2)
+    #pragma pack(push, 1)
     struct TAP_TRAILER{
         uint16_t crc_16;
         uint16_t eof_word;
@@ -160,7 +175,7 @@ class TAP{
     uint8_t serialize(const TAP_ADDRESS_HEADER *header, const void *payload, TAP_TRAILER *trailer, uint8_t *buffer, uint8_t max_len);
 
     //This should be able to fail to detect a correct struct after unraveling the header
-    uint8_t deserialize(uint8_t *raw_message, uint8_t message_len);
+    uint8_t deserialize(uint8_t *raw_message, uint8_t message_len, uint8_t* payload_type_out, uint8_t* payload_len_out, uint8_t* payload_buffer_out);
 
     private:
     //vars and datatypes
