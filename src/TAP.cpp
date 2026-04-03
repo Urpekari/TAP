@@ -174,55 +174,45 @@
     uint8_t TAP::deserialize(uint8_t *raw_message, uint8_t message_len, uint8_t* payload_type_out, uint8_t* payload_len_out, uint8_t* payload_buffer_out){
         TAP::TAP_ADDRESS_HEADER received_header;
 
-        printf("Provided buffer:\n");
-        for (uint8_t i = 8; i < message_len; i++) {
-            printf("%02X ", raw_message[i]);
-        }
-        printf("\n");
-
         memcpy(&received_header, raw_message, sizeof(TAP::TAP_ADDRESS_HEADER));
+
+        //This will take the payload out of the full message, and give it back separately.
+        //It also gives back the payload length and the payload type separately
+        //The controller is in charge of identifying the fields within the payload
+
+        uint8_t tap_received_type = 0;
+
         switch(received_header.message_type){
             case ACK_NACK:
-                printf("Acknowledgement!\n");
+                tap_received_type = sizeof(TAP_ACK_NACK);
                 break;
             case DIRECT_COMMAND:
-                //This will take the payload out of the full message, and give it back separately.
-                //It also gives back the payload length and the payload type separately
-                //The controller is in charge of identifying the fields within the payload
-
-                if(received_header.message_len-sizeof(TAP_ADDRESS_HEADER) == sizeof(TAP_DIRECT_COMMAND)){
-                    TAP_DIRECT_COMMAND received_direct_command;
-                    *payload_type_out = received_header.message_type;
-                    *payload_len_out = received_header.message_len-sizeof(TAP_ADDRESS_HEADER);
-
-                    memcpy(payload_buffer_out, raw_message + sizeof(TAP_ADDRESS_HEADER), *payload_len_out);
-                    printf("CPP -> Out com bool: %d\n", (uint8_t)payload_buffer_out[2]);
-                }
+                tap_received_type = sizeof(TAP_DIRECT_COMMAND);
                 break;
             case INDIRECT_COMMAND:
-                //printf("Indirect command!\n");
+                tap_received_type = sizeof(TAP_INDIRECT_COMMAND);
                 break;
             case TELEMETRY:
-                //"But this is the thing that creates the telemetry data why can it dissect other telemetry"
-                //Because it's the only message we've finished so far. Screw you.
-                //printf("Telemetry!\n");
-                //printf("Header + Payload length: %d\n", received_header.message_len);
-                TAP_TELEMETRY received_telemetry;
-                memcpy(&received_telemetry, raw_message+sizeof(TAP_ADDRESS_HEADER), received_header.message_len - sizeof(TAP_ADDRESS_HEADER));
-                //printf("GPS: %f, %f\n", flipFloatEndianness(received_telemetry.lat), flipFloatEndianness(received_telemetry.lon));
+                tap_received_type = sizeof(TAP_TELEMETRY);
                 break;
             case NEGOTIATE_DATALINK:
-                printf("Datalink negotiation!\n");
-                //The raspberry pi pico should throw these commands away at the moment, it does not manage the radio link at all.
-                //We trust serial - for now - to be reliable
-                break;
+                //Temporary
+                return(TAP_ERROR_UNSUPPORTED_HEADER);
             case TELEMETRY_DATALINK:
-                printf("Datalink telemetry!\n");
-                //The raspberry pi pico should throw these commands away at the moment, it does not manage the radio link at all.
-                //We trust serial - for now - to be reliable
-                break;
+                //Temporary
+                return(TAP_ERROR_UNSUPPORTED_HEADER);
             default:
                 return(TAP_ERROR_UNSUPPORTED_HEADER);
+
         }
+
+        if(received_header.message_len-sizeof(TAP_ADDRESS_HEADER) == tap_received_type){
+            *payload_type_out = received_header.message_type;
+            *payload_len_out = received_header.message_len-sizeof(TAP_ADDRESS_HEADER);
+
+            memcpy(payload_buffer_out, raw_message + sizeof(TAP_ADDRESS_HEADER), *payload_len_out);
+            printf("CPP -> Out com bool: %d\n", (uint8_t)payload_buffer_out[2]);
+        }
+
         return(TAP::TAP_OK);
     }

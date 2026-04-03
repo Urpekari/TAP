@@ -121,8 +121,8 @@ uint8_t tap_rx(){
 
         switch(rx_type) {
             case TAP::DIRECT_COMMAND: {
-                printf("Size of payload: %d\n", rx_len);
 
+/*              DEBUG LINES I HOPE TO NEVER NEED AGAIN OH MY GOD
                 printf("Expected buffer:\n");
                 for (uint8_t i = 8; i < rx_len + 8; i++) {
                     printf("%02X ", test_buffer[i]);
@@ -133,13 +133,11 @@ uint8_t tap_rx(){
                 for (uint8_t i = 0; i < rx_len; i++) {
                     printf("%02X ", rx_buffer[i]);
                 }
-                printf("\n");
+                printf("\n"); */
 
                 TAP::TAP_DIRECT_COMMAND received_direct_command;
                 memcpy(&received_direct_command, rx_buffer, sizeof(TAP::TAP_DIRECT_COMMAND));
 
-                printf("bools: %u\n", received_direct_command.bools);
-                printf("channel_0: %u\n", received_direct_command.channel_0);
                 direct_command_worker(received_direct_command);
                 break;
             }

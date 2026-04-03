@@ -89,7 +89,6 @@ class TAP{
         TELEMETRY_DATALINK = 0xFF
     };
 
-
     #pragma pack(push, 1)
     struct TAP_ADDRESS_HEADER{
         uint16_t sof_word;
