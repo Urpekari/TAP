@@ -27,7 +27,7 @@ def message_type_hex_to_str(type_hex):
 
 
 class TAP_message:
-    def __init__(self, tID, sID, messageType, payload):
+    def __init__(self, tID, sID, messageType, payload=None):
         self.header = TAP_header(tID,sID,messageType,0)
         self.payload = payload
         self.trailer = TAP_trailer()
@@ -42,7 +42,8 @@ class TAP_message:
         print("")
         print(f"Length: {len(self.packed_message)}")
         print(f"HEADER({len(self.packed_header)}):",' '.join(f'{b:02x}' for b in self.packed_header))
-        print(f"PAYLOAD({len(self.packed_payload)}):",' '.join(f'{b:02x}' for b in self.packed_payload))
+        if self.payload is not None:
+            print(f"PAYLOAD({len(self.packed_payload)}):",' '.join(f'{b:02x}' for b in self.packed_payload))
         print(f"TRAILER({len(self.packed_trailer)}):",' '.join(f'{b:02x}' for b in self.packed_trailer))
         print("")
 
@@ -50,7 +51,8 @@ class TAP_message:
     def object_string(self):
         self.header.object_string()
         print("")
-        self.payload.object_string()
+        if self.payload is not None:
+            self.payload.object_string()
         print("")
         self.trailer.object_string()
         print("")
@@ -144,11 +146,18 @@ class TAP_message:
         message.trailer = TAP_trailer.unpack_trailer(packed_trailer)
         assert message.trailer.check_CRC16(message.packed_header,message.packed_payload)
         
-        if message.header.messageType == TELEMETRY:
+        #TODO Add missing payload types (Negotiate Datalink)
+        if message.header.messageType == DIRECT_COMMAND:
+            message.payload = DirectCommandPayload.unpack_payload(packed_payload)
+        elif message.header.messageType == INDIRECT_COMMAND:
+            message.payload = IndirectCommandPayload.unpack_payload(packed_payload)
+        elif message.header.messageType == TELEMETRY:
             message.payload = TelemetryPayload.unpack_payload(packed_payload)
         elif message.header.messageType == TELEMETRY_DATALINK:
-            message.payload = TelemetryDatalink.unpack_payload(packed_payload)
-        #TODO: Add missing payload types
+            message.payload = TelemetryDatalinkPayload.unpack_payload(packed_payload)
+        else:
+            message.payload = None
+                
         return message
 
 
@@ -191,7 +200,7 @@ class TAP_header:
         print(f"tID:0x{self.tID:02x}({self.tID})")
         print(f"sID:0x{self.sID:02x}({self.sID})")
         print(f"Message Type:0x{self.messageType:02x}({message_type_hex_to_str(self.messageType)})")
-        print(f"Message Lenght:{hex(self.messageLength)}")
+        print(f"Message Length:{hex(self.messageLength)}")
         print(f"COBS:0x{self.COBS:02x}")
 
 
@@ -203,6 +212,10 @@ class TAP_trailer:
 
     def calculate_CRC16(self, header_bytes, payload_bytes):
         #logging.DEBUG("Calculating CRC-16")
+        
+        #For ACKs, there is no payload
+        if payload_bytes is None:
+            payload_bytes = b'' 
         data = header_bytes + payload_bytes
         calculator = Calculator(Crc16.MODBUS)
         self.CRC16 = calculator.checksum(data)
@@ -278,27 +291,52 @@ class TelemetryPayload:
         print(f"Roll: 0x{struct.pack('>f', self.roll).hex()} ({self.roll})")
         print(f"Pitch: 0x{struct.pack('>f', self.pitch).hex()} ({self.pitch})")
 
-    
+class BooleanArray:
+    def __init__(self):
+        self.bits = None #16 bit array
+        self.bools = None #Value that array takes as an uint16
+
+    #Setting either one cascades in the other
+    def setBits(self, bits):
+        self.bits = bits
+        self.bools = sum(bit << (15 - i) for i, bit in enumerate(bits))
+
+    def setBools(self, bools):
+        self.bools = bools
+        self.bits = [(bools >> (15 - i)) & 1 for i in range(16)]
+
+    def print_array(self):
+        flag_names = ['ARM', 'AUTO', 'STAB', 'NAVLIGHT', 'STROBE', 'LAND', 
+                    '', '', '', '', '', '', 'COMLOSSBY', 'LOITER', 'RTH']
+        
+        for i, name in enumerate(flag_names):
+            if name:  # Only print named flags
+                status = 'y' if self.bits[i] else 'n'
+                print(f"{name:<10}: {status} (bit {i})")
+
+
+
 class DirectCommandPayload:
     MAX_SIGNAL_COUNT = 8
-    def __init__(self, flags, bools, values):
-        if values is None:
-            values = []
-        if len(values) > self.MAX_SIGNAL_COUNT:
+    def __init__(self, bools, channels):
+        if channels is None:
+            channels = []
+        if len(channels) > self.MAX_SIGNAL_COUNT:
             raise ValueError(f"Max {self.MAX_SIGNAL_COUNT} signals allowed")
-        self.values = values 
-        for i in range(len(self.values),self.MAX_SIGNAL_COUNT):
-            self.values.append(0x0000)
-        self.bools = bools 
-        self.flags =flags
+        self.channels = channels 
+        for i in range(len(self.channels),self.MAX_SIGNAL_COUNT):
+            self.channels.append(0x0000)
+        self.booleanArray = BooleanArray() 
+        self.booleanArray.setBools(bools)
+
     
     def pack_payload(self):
-        count = len(self.values)
+        count = len(self.channels)
         format = f'>HH{"H"*count}'
         return struct.pack(format,
-            self.bools,
+            self.booleanArray.bools,
             0x0000,
-            *self.values
+            *self.channels
             )
     
     def unpack_payload(cls,packed_data):
@@ -307,43 +345,57 @@ class DirectCommandPayload:
         count = len(packed_data)/2
         fmt = f'>{"H"*count}'
         bools = struct.unpack('>H', packed_data[:2])
-        values = list(struct.unpack(fmt, packed_data[4:]))
-
-        bits = [(bools >> (15 - i)) & 1 for i in range(16)]
-        
-        flags = {
-            'ARM': bits[0],
-            'AUTO': bits[1], 
-            'STAB': bits[2],
-            'NAVLIGHT': bits[3],
-            'STROBE': bits[4],
-            'LAND': bits[5],
-            'COMLOSSBY': bits[11],
-            'LOITER': bits[12],
-            'RTH': bits[13]
-        }
-
-        return cls(flags, bools, values)
+        channels = list(struct.unpack(fmt, packed_data[4:]))
+        return cls(bools, channels)
     
     def object_string(self):
         print("Direct Command Payload:")
-        print(f"Flags: 0x{self.bools:04x}({self.bools})")
+        print(f"Flags: 0x{self.booleanArray.bools:04x}({self.booleanArray.bools})")
+        self.booleanArray.print_array()
+        for i in range(0,len(self.channels)):
+            print(f"Channel {i} command: {hex(self.channels[i])}({self.channels[i]})")
         
-        bits = [(self.bools >> (15 - i)) & 1 for i in range(16)]
-        flag_names = ['ARM', 'AUTO', 'STAB', 'NAVLIGHT', 'STROBE', 'LAND', 
-                    '', '', '', '', '', '', 'COMLOSSBY', 'LOITER', 'RTH']
-        
-        for i, name in enumerate(flag_names):
-            if name:  # Only print named flags
-                status = 'y' if bits[i] else 'n'
-                print(f"{name:<10}: {status} (bit {i})")
+class IndirectCommandPayload:
+    def __init__(self, bools, gps_lat, gps_lon, alt, rad):
+        self.gps_lat = gps_lat
+        self.gps_lon = gps_lon
+        self.alt = alt
+        self.rad = rad
 
-        for i in range(0,len(self.values)):
-            print(f"Channel {i} command: {hex(self.values[i])}({self.values[i]})")
-        
-        
+        #Same procedure as direct command
+        self.booleanArray = BooleanArray() 
+        self.booleanArray.setBools(bools)
 
-class TelemetryDatalink:
+    def pack_payload(self):
+        return struct.pack('>HHffHH',
+            self.booleanArray.bools,
+            0x0000,
+            self.gps_lat,
+            self.gps_lon,
+            self.alt,
+            self.rad
+            )
+    
+    def unpack_payload(cls,packed_data):
+        if len(packed_data) < 1:
+            raise ValueError("Payload too short")
+
+        bools = struct.unpack('>H', packed_data[:2])
+        gps_lat, gps_lon, alt, rad = list(struct.unpack('>ffHH', packed_data[4:]))
+        return cls(bools, gps_lat, gps_lon, alt, rad)
+    
+    def object_string(self):
+        print("Indirect Command Payload:")
+        print(f"Flags: 0x{self.booleanArray.bools:04x}({self.booleanArray.bools})")
+        self.booleanArray.print_array()
+        print(f"Waypoint Latitude: 0x{struct.pack('>f', self.gps_lat).hex()} ({self.gps_lat})")
+        print(f"Waypoint Longitude: 0x{struct.pack('>f', self.gps_lon).hex()} ({self.gps_lon})")
+        print(f"Waypoint Altitude/Depth: 0x{struct.pack('>H', self.alt).hex()} ({self.alt})")
+        print(f"Waypoint Precission Radius: 0x{struct.pack('>H', self.rad).hex()} ({self.rad})")
+
+
+
+class TelemetryDatalinkPayload:
     def __init__(self, RSSI, SNR, RTT, SENT_PKTS, DELTA_T):
         self.RSSI = RSSI
         self.SNR = SNR
@@ -372,65 +424,9 @@ class TelemetryDatalink:
     
     def object_string(self):
         print("Telemetry Datalink Payload:")
-        print(f"RSSI:{self.RSSI}({hex(self.RSSI)})")
-        print(f"SNR:{self.SNR}({hex(self.SNR)})")
-        print(f"RTT:{self.RTT}({hex(self.RTT)})")
-        print(f"SENT_PKTS:{self.SENT_PKTS}({hex(self.SENT_PKTS)})")
-        print(f"DELTA_T:{self.DELTA_T}({hex(self.DELTA_T)})")
-        print(f"Reserved:{self.reserved}({hex(self.reserved)})")
-
-                
-
-# THIS IS TURBO AI SLOP
-CRC16 = 0xA001  # Assuming standard CRC-16 poly, adjust if different
-
-def crc_16(message, message_len):
-    out = 0
-    bits_read = 0
-    bit_flag = 0
-    
-    # Sanity check:
-    if message is None or len(message) == 0:
-        return 0
-    
-    # Convert message_len to actual bytes if it's a bytes object
-    if isinstance(message, bytes):
-        message_len = len(message)
-    
-    i = 0  # Byte index
-    while message_len > 0:
-        bit_flag = (out >> 15) & 1
-        
-        # Get next bit: work from LSB (item a)
-        out = (out << 1) & 0xFFFF
-        out |= (message[i] >> bits_read) & 1
-        
-        # Increment bit counter
-        bits_read += 1
-        if bits_read > 7:
-            bits_read = 0
-            i += 1
-            message_len -= 1
-        
-        # Cycle check
-        if bit_flag:
-            out ^= CRC16
-    
-    # "Push out" the last 16 bits (item b)
-    for _ in range(16):
-        bit_flag = out >> 15
-        out = (out << 1) & 0xFFFF
-        if bit_flag:
-            out ^= CRC16
-    
-    # Reverse the bits (item c)
-    crc = 0
-    bit_mask = 0x8000
-    bit_pos = 0x0001
-    while bit_mask != 0:
-        if out & bit_mask:
-            crc |= bit_pos
-        bit_mask >>= 1
-        bit_pos <<= 1
-    
-    return crc
+        print(f"RSSI:0x{struct.pack('>h', self.RSSI).hex()}({self.RSSI})") #Signed int, simple method simply doesn't cut it
+        print(f"SNR:0x{self.SNR:04x}({self.SNR})")
+        print(f"RTT:0x{self.RTT:04x}({self.RTT})")
+        print(f"SENT_PKTS:0x{self.SENT_PKTS:04x}({self.SENT_PKTS})")
+        print(f"DELTA_T:0x{self.DELTA_T:04x}({self.DELTA_T})")
+        print(f"Reserved:0x{self.reserved:04x}({self.reserved})")

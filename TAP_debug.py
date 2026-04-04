@@ -48,7 +48,7 @@ class TAP_CLI:
             case "00":
                 #ACK has no payload
                 message_type=TAP.ACK
-                pass
+                return TAP.TAP_message(tID,sID,message_type)
             case "01":
                 message_type=TAP.DIRECT_COMMAND
                 payload = self.create_direct_command_payload()
@@ -75,7 +75,6 @@ class TAP_CLI:
 
     def create_direct_command_payload(self):
         #bools
-        
         bits = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         arm = input("ARM bit[y/n]")
         if arm == "y":
@@ -130,7 +129,6 @@ class TAP_CLI:
             bits[13]=1
         elif rth == "n":
             bits[13]=0
-        
           
         bools = sum(bit << (15 - i) for i, bit in enumerate(bits))  
         
@@ -147,10 +145,73 @@ class TAP_CLI:
             elif check == "n":
                 break
         
-        return TAP.DirectCommandPayload(bits,bools,values)
+        return TAP.DirectCommandPayload(bools,values)
             
 
-    #def create_indirect_command_payload(self):
+    def create_indirect_command_payload(self):
+        #bools
+        bits = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        arm = input("ARM bit[y/n]")
+        if arm == "y":
+            bits[0]=1
+        elif arm == "n":
+            bits[0]=0
+
+        auto = input("AUTO bit[y/n]")
+        if auto == "y":
+            bits[1]=1
+        elif auto == "n":
+            bits[1]=0
+
+        stab = input("STAB bit[y/n]")
+        if stab == "y":
+            bits[2]=1
+        elif stab == "n":
+            bits[2]=0
+
+        navlight = input("NAVLIGHT bit[y/n]")
+        if navlight == "y":
+            bits[3]=1
+        elif navlight == "n":
+            bits[3]=0
+
+        strobe = input("AUTO bit[y/n]")
+        if strobe == "y":
+            bits[4]=1
+        elif strobe == "n":
+            bits[4]=0
+
+        land = input("LAND bit[y/n]")
+        if land == "y":
+            bits[5]=1
+        elif land == "n":
+            bits[5]=0
+
+        comlossby = input("COMLOSSBY bit[y/n]")
+        if comlossby == "y":
+            bits[11]=1
+        elif comlossby == "n":
+            bits[11]=0
+
+        loiter = input("LOITER bit[y/n]")
+        if loiter == "y":
+            bits[12]=1
+        elif loiter == "n":
+            bits[12]=0
+
+        rth = input("RTH bit[y/n]")
+        if rth == "y":
+            bits[13]=1
+        elif rth == "n":
+            bits[13]=0
+          
+        bools = sum(bit << (15 - i) for i, bit in enumerate(bits))  
+        lat = float(input("Waypoint Latitude:"))
+        lon = float(input("Waypoint Longitude:"))
+        alt = int(input("Waypoint Altitude/Depth:"))
+        rad = int(input("Waypoint Precission Radius:"))
+        return TAP.IndirectCommandPayload(bools,lat,lon,alt,rad)
+
 
     def create_telemetry_payload(self):
         lat = float(input("Latitude:"))
@@ -163,7 +224,16 @@ class TAP_CLI:
         return TAP.TelemetryPayload(lat,lon,alt,heading,roll,pitch)
     #def create_negotiate_datalink_payload(self):
 
-    #def create_telemetry_datalink_payload(self):                        
+    def create_telemetry_datalink_payload(self):
+        print("Only for debug purposes, this should be done at NIC level, e.g. LoRa driver")
+        rssi = int(input("RSSI:"))   
+        snr = int(input("SNR:")) 
+        rtt = int(input("RTT:")) 
+        sent_pkts = int(input("SENT_PKTS:")) 
+        delta_t = int(input("DELTA_T:")) 
+
+        return TAP.TelemetryDatalinkPayload(rssi,snr,rtt,sent_pkts,delta_t)
+
     
 
 
@@ -211,16 +281,15 @@ def send(serial_device,baudrate,timeout):
     #Init serial device
     tap_cli = TAP_CLI(port=serial_device,baudrate=baudrate,timeout=timeout)
     
-    #while True: 
-        #tap_message = tap_cli.create_TAP_message()
-        #full_packet = tap_message.pack_message()
+    while True: 
+        tap_message = tap_cli.create_TAP_message()
 
         #tap_cli.send_TAP_message(tap_message.pack_message())
-    tap_payload = TAP.TelemetryPayload(43.323228,-3.017115,33,245,90,90)
-    tap_message = TAP.TAP_message(0x02,0x01,TAP.TELEMETRY,tap_payload)
-    #full_packet = tap_message.pack_message()
-    tap_message.string()
-    tap_message.object_string()
+        #tap_payload = TAP.TelemetryPayload(43.323228,-3.017115,33,245,90,90)
+        #tap_message = TAP.TAP_message(0x02,0x01,TAP.TELEMETRY,tap_payload)
+
+        tap_message.string()
+        tap_message.object_string()
 
 
 
