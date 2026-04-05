@@ -290,8 +290,8 @@ def send(serial_device,baudrate,timeout):
     
     while True: 
         tap_message = tap_cli.create_TAP_message()
-        logger.debug(f"{tap_message.string()}")
-        logger.debug(f"{tap_message.object_string()}")
+        logger.debug(f"Message Bytes:\n{tap_message.debug()}")
+        logger.debug(f"Message Fields:\n{tap_message.object_debug()}")
         tap_cli.send_TAP_message(tap_message.packed_message)
 
 

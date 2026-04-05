@@ -1,4 +1,4 @@
-import struct, logging
+import struct
 from crc import Calculator,Crc16
 
 ACK = 0x00
