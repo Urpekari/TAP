@@ -22,6 +22,7 @@
             return TAP_ERROR_INVALID_LENGTH;
         }
         TAP_ADDRESS_HEADER header_copy = *header;
+        header_copy.sof_word = TAP::TAP_SOF_WORD;
         header_copy.cobs = 0x0000;
         // Serialize header
         memcpy(buffer, &header_copy, sizeof(TAP_ADDRESS_HEADER));
