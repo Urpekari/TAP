@@ -13,8 +13,8 @@ class TAP_CLI:
         if port is None:
             self.serial = None
         else:
-            #print("Serial is temporarily disabled")
-            self.serial = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
+            print("Serial is temporarily disabled")
+            #self.serial = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
 
     def read_TAP_message(self):
         buffer = bytearray()
@@ -52,9 +52,8 @@ class TAP_CLI:
         message_type_str = input("Select Message Type:\n\nACK(00)\nDIRECT_COMMAND(01)\nINDIRECT_COMMAND(02)\nTELEMETRY(10)\nNEGOTIATE_DATALINK(FE)\nTELEMETRY_DATALINK(FF)\n\nYour Selection:")
         match message_type_str:
             case "00":
-                #ACK has no payload
                 message_type=TAP.ACK
-                return TAP.TAP_message(tID,sID,message_type)
+                payload = self.create_ACK_payload()
             case "01":
                 message_type=TAP.DIRECT_COMMAND
                 payload = self.create_direct_command_payload()
@@ -77,6 +76,20 @@ class TAP_CLI:
         tap_message = TAP.TAP_message(tID,sID,message_type,payload)        
         return tap_message
 
+    def create_ACK_payload(self):
+        ack_type_str = input("Select Message Type:\n\nACK(00)\nNACK(01)\n\nYour Selection:")
+        match ack_type_str:
+            case "00":
+                ack_type = 0x00
+                token = 0x123456
+                return TAP.ACKPayload(ack_type,token)
+            case "01":
+                ack_type = 0x01
+                token = 0x123456
+                return TAP.ACKPayload(ack_type,token)
+            case _:
+                print("That is not an option, so funny man!")
+                return
 
 
     def create_direct_command_payload(self):

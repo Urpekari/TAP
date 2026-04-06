@@ -35,15 +35,14 @@ class TAP_message:
         self.packed_message = None
         self.packed_header = None
         self.packed_payload = None
-        self.packed_trailer = None
-        if (self.header is not None) and (self.payload is not None) and (self.trailer is not None): 
-            self.pack_message()
+        self.packed_trailer = None 
+        self.pack_message()
 
     def string(self):
         print("")
         print(f"Length: {len(self.packed_message)}")
         print(f"HEADER({len(self.packed_header)}):",' '.join(f'{b:02x}' for b in self.packed_header))
-        if self.payload is not None:
+        if self.packed_payload is not None:
             print(f"PAYLOAD({len(self.packed_payload)}):",' '.join(f'{b:02x}' for b in self.packed_payload))
         print(f"TRAILER({len(self.packed_trailer)}):",' '.join(f'{b:02x}' for b in self.packed_trailer))
         print("")
@@ -110,25 +109,13 @@ class TAP_message:
         self.packed_trailer = self.packed_message[-4:]
 
     def pack_message(self):
-        if self.header.messageType == ACK:
-            self.packed_payload = None
-            self.header.messageLength = 0X00
-        else:
-            self.packed_payload = self.payload.pack_payload()
-            self.header.messageLength = len(self.packed_payload)
-        
 
+        self.packed_payload = self.payload.pack_payload()
+        self.header.messageLength = len(self.packed_payload)
         self.packed_header = self.header.pack_header()
-        
-
         self.trailer.calculate_CRC16(self.packed_header, self.packed_payload)
-        
-
         self.packed_trailer = self.trailer.pack_trailer()
-        if self.header.messageType == ACK:
-            self.packed_message =  self.packed_header + self.packed_trailer
-        else:
-            self.packed_message =  self.packed_header + self.packed_payload + self.packed_trailer
+        self.packed_message =  self.packed_header + self.packed_payload + self.packed_trailer
         self.calculate_COBS()
         return self.packed_message
     
@@ -304,6 +291,35 @@ class TAP_trailer:
         output = '\n'.join(lines)
         return output
         
+class ACKPayload:
+    def __init__(self, ack_type,token):
+        self.ack_type = ack_type
+        self.token = token
+
+    def pack_payload(self):
+        token_bytes = self.token.to_bytes(3, 'big')
+        return struct.pack('>B3s',
+            self.ack_type,
+            token_bytes
+        )
+
+    @classmethod
+    def unpack_payload(cls, data):
+        ack_type, token_bytes = struct.unpack('>B3s', data)
+        token = int.from_bytes(token_bytes, 'big')
+        return cls(ack_type, token)
+    
+    def object_string(self):
+        print("ACK Payload:")
+        print(f"ACK Type: 0x{struct.pack('>B', self.ack_type).hex()} ({self.ack_type})")
+        print(f"Token: 0x{self.token.to_bytes(3, 'big').hex()} ({self.token})")
+
+    def object_debug(self):
+        lines = []
+        lines.append("ACK Payload:")
+        lines.append(f"ACK Type: 0x{struct.pack('>B', self.ack_type).hex()} ({self.ack_type})")
+        lines.append(f"Token: 0x{self.token.to_bytes(3, 'big').hex()} ({self.token})")
+        return '\n'.join(lines)
 
 
 class TelemetryPayload:
