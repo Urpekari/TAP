@@ -1,8 +1,10 @@
 #include "pico/stdlib.h"
 #include "hardware/pwm.h"
+#include "pico/cyw43_arch.h"
 #include <stdio.h>
 #include "string.h"
 #include "TAP.h"
+#include "tusb.h"
 
 //===== DEFINITIONS
 
@@ -100,7 +102,7 @@ uint8_t direct_command_worker(TAP::TAP_DIRECT_COMMAND command){
     command.channel_7 = __builtin_bswap16(command.channel_7);
 
     //Check if the armed bit is high
-    if(command.bools > 0x8000){
+    if(command.bools >= 0x8000){
         printf("Armed!\n");
         printf("Motor(s) going BRRRRRRRRR at: %d speed!!\n", command.channel_0);
     }
@@ -109,6 +111,37 @@ uint8_t direct_command_worker(TAP::TAP_DIRECT_COMMAND command){
         printf("NOT armed!! Safe!! :3\n");
     }
     return(0);
+}
+
+uint8_t read_TAP_message(uint8_t* buffer, uint8_t* message_length) {
+    uint8_t buffer_len = 0; int buffer_size = 256;
+    
+    while (true) {
+        if (tud_cdc_available() > 0) {
+            int chunk_size = tud_cdc_available();
+            if (chunk_size > 255) chunk_size = 255;
+            
+            for (int i = 0; i < chunk_size && buffer_len < buffer_size - 1; i++) {
+                int32_t ch = tud_cdc_read_char();
+                if (ch != -1) {
+                    buffer[buffer_len++] = (uint8_t)ch;
+                }
+                else {
+                    return TAP::TAP_ERROR_READ_ERROR;
+                }
+            }
+        }
+        
+        if (buffer_len > 2 && 
+            buffer[buffer_len-2] == 0xAA && 
+            buffer[buffer_len-1] == 0x55) {
+            break;
+        }
+        sleep_ms(1);
+    }
+    
+    *message_length = buffer_len;
+    return TAP::TAP_OK;       
 }
 
 uint8_t tap_rx(){
@@ -124,7 +157,7 @@ uint8_t tap_rx(){
         //Direct command example
         //uint8_t test_buffer[32] = {0xAA, 0x55, 0x02, 0x01, 0x1C, 0x01, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xAA, 0xAA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x91, 0xB7, 0xAA, 0x55};
         
-        //Direct command example from Gaizka's code
+        //Direct command example from Gaizka's code00 00
         uint8_t test_buffer[32] = {0xAA, 0x55, 0x21, 0x2C, 0x14, 0x01, 0x00, 0x00, 0xE0, 0x1C, 0x00, 0x00, 0x38, 0x51, 0x54, 0x7A, 0x70, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x76, 0x12, 0xAA, 0x55};
         //Telemetry example
         //uint8_t test_buffer[32] = {0xAA, 0x55, 0x02, 0x01, 0x14, 0x10, 0x00, 0x10, 0x42, 0x2D, 0x2E, 0x63, 0xC0, 0x3E, 0x55, 0x8F, 0x00, 0x00, 0x00, 0xF5, 0x42, 0xB4, 0x00, 0x00, 0x42, 0xB4, 0x00, 0x00, 0x2F, 0xEF, 0xAA, 0x55};
@@ -134,12 +167,22 @@ uint8_t tap_rx(){
 
         //Telemetry example, two COBS fields
         //uint8_t test_buffer[32] = {0xAA, 0x55, 0x02, 0x01, 0x14, 0x10, 0x00, 0x10, 0x42, 0x2D, 0x4A, 0xFC, 0xC0, 0x41, 0x18, 0x6A, 0x00, 0x12, 0x00, 0x00, 0x42, 0x34, 0x00, 0x00, 0x42, 0xB4, 0x00, 0x00, 0x42, 0xB0, 0xAA, 0x55};
-
+        
         uint8_t rx_type = 0;
         uint8_t rx_len = 0;
         uint8_t rx_buffer[32]; // Allocate memory!
 
-        uint8_t deserialize_result = tap.deserialize(test_buffer, 32, &rx_type, &rx_len, rx_buffer);
+        uint8_t read_buffer[32];
+        uint8_t read_len = 0;
+
+
+
+        uint8_t read_result = read_TAP_message(read_buffer,&read_len);
+        if(read_result != tap.TAP_OK){
+            printf("ERROR READ!\n");
+            return(1);
+        }
+        uint8_t deserialize_result = tap.deserialize(read_buffer, read_len, &rx_type, &rx_len, rx_buffer);
         if(deserialize_result != tap.TAP_OK){
             printf("OI YOU WERE NOT SUPPOSED TO DO THAT!\n");
             return(1);
@@ -166,19 +209,26 @@ uint8_t tap_rx(){
 // GPIO Initialisation should all happen here pls thx
 int pico_gpio_init(void) {
 
+    /*
     gpio_init(PICO_DEFAULT_LED_PIN);
-    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);*/
+    if (cyw43_arch_init()) {
+        return 1;
+    }
     return PICO_OK;
 }
 
 // Decor LED, it lets you know (by blinking twice) that the whole thing has not died
+
 uint8_t pico_set_led() {
     if(to_ms_since_boot(get_absolute_time()) - ms_last_change <= 1000){
         if((to_ms_since_boot(get_absolute_time()) - ms_last_change >= 200 && to_ms_since_boot(get_absolute_time()) - ms_last_change <= 275)||(to_ms_since_boot(get_absolute_time()) - ms_last_change >= 325 && to_ms_since_boot(get_absolute_time()) - ms_last_change <= 400)){
-            gpio_put(PICO_DEFAULT_LED_PIN, true);
+            //gpio_put(PICO_DEFAULT_LED_PIN, true);
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, true);
         }
         else{
-            gpio_put(PICO_DEFAULT_LED_PIN,false);
+            //gpio_put(PICO_DEFAULT_LED_PIN,false);
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false);
         }
     }
     else{
@@ -186,6 +236,9 @@ uint8_t pico_set_led() {
     }
     return(0);
 }
+
+
+
 
 int main() {
     stdio_init_all();
@@ -195,7 +248,7 @@ int main() {
 
     sleep_ms(100);
     pico_set_led();
-
+    
     char testByte = (char)0;
     
     while (true) {
