@@ -36,7 +36,8 @@ class TAP_message:
         self.packed_header = None
         self.packed_payload = None
         self.packed_trailer = None 
-        self.pack_message()
+        if payload != None: 
+            self.pack_message()
 
     def string(self):
         print("")
@@ -87,12 +88,11 @@ class TAP_message:
         return output
 
     def calculate_COBS(self):
-        SOF_word_big_endian = 0xAA55
         msg = bytearray(self.packed_message)
         last_cobs_pos = 0x0006
         print(last_cobs_pos)
         for i in range(2, len(msg)-2):
-            if(msg[i]<< 8 | msg[i+1]) == SOF_word_big_endian:
+            if(msg[i]<< 8 | msg[i+1]) == self.header.SOF:
                 print(f"FOUND ONE, i:{i}")
                 msg[last_cobs_pos] = i >> 8
                 msg[last_cobs_pos+1] = i 
@@ -132,9 +132,9 @@ class TAP_message:
             while True:
                 print(f"COBS in position:{current_cobs_pos}")
                 next_cobs_pos = (msg[current_cobs_pos] << 8 | msg[current_cobs_pos+1])
-                #These ones have to be turned back to 0xAA55
-                msg[current_cobs_pos] = 0xAA
-                msg[current_cobs_pos+1] = 0x55
+                #These ones have to be turned back to 0x55AA
+                msg[current_cobs_pos] = 0x55
+                msg[current_cobs_pos+1] = 0xAA
                 if next_cobs_pos == 0x0000:
                     print("No more COBS")
                     break
@@ -182,7 +182,7 @@ class TAP_message:
       
 class TAP_header:
     def __init__(self, tID, sID, messageType, messageLength):
-        self.SOF = 0xAA55
+        self.SOF = 0x55AA
         self.tID = tID
         self.sID = sID
         if messageType == DIRECT_COMMAND:
@@ -238,7 +238,7 @@ class TAP_header:
 class TAP_trailer:
     def __init__(self,CRC16=None):
         self.CRC16 = CRC16
-        self.EOF = 0xAA55
+        self.EOF = 0x55AA
 
     def calculate_CRC16(self, header_bytes, payload_bytes):
         #logging.DEBUG("Calculating CRC-16")

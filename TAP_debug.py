@@ -1,5 +1,8 @@
 #v2026.04c
+import binascii
+
 import serial, time, logging, TAP, traceback
+from evdev import InputDevice, categorize, ecodes, list_devices
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -13,8 +16,8 @@ class TAP_CLI:
         if port is None:
             self.serial = None
         else:
-            print("Serial is temporarily disabled")
-            #self.serial = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
+            #print("Serial is temporarily disabled")
+            self.serial = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
 
     def read_TAP_message(self):
         buffer = bytearray()
@@ -22,16 +25,19 @@ class TAP_CLI:
         while True:
             if self.serial.in_waiting > 0:
                 logger.info("Message received")
-                chunk_size = min(255,self.serial.in_waiting)
+                chunk_size = min(32,self.serial.in_waiting)
+                print("Chunk size:"+str(chunk_size))
                 chunk = self.serial.read(chunk_size)
+                
                 if not chunk:  
                     break
                 buffer.extend(chunk)
+                print(' '.join(f'{b:02x}' for b in buffer))
 
-            if len(buffer) >2 and buffer[-2:] == b'\xAA\x55':
+            if len(buffer) >2 and buffer[-2:] == b'\x55\xAA':
                 break
 
-            time.sleep(0.001)
+            time.sleep(0.7)
 
         return TAP.TAP_message.unpack(buffer)
     
@@ -280,13 +286,15 @@ def main():
     else:
         timeout = int(timeout_str)
     
-    selection = input("Select function:\n\nSend(s)\nMonitor(m)\n\nYour Selection:")
+    selection = input("Select function:\n\nSend(s)\nMonitor(m)\nController(c)\n\nYour Selection:")
     
     match selection:
         case "s":
             send(serial_device,baudrate,timeout)
         case "m":
             monitor(serial_device,baudrate,timeout)
+        case "c":
+            controller(serial_device,baudrate,timeout)
         case _: 
             print("That is not an option, so funny man!")
             return
@@ -307,6 +315,13 @@ def send(serial_device,baudrate,timeout):
         logger.debug(f"Message Fields:\n{tap_message.object_debug()}")
         tap_cli.send_TAP_message(tap_message.packed_message)
 
+        while 1:
+            serial_line = TAP_CLI.serial.readline()
+            print (serial_line) #for debug
+            if len(serial_line) == 0:
+                break
+
+
 
 def monitor(serial_device,baudrate,timeout):
     print("Monitor mode selected")
@@ -325,8 +340,110 @@ def monitor(serial_device,baudrate,timeout):
             print(f"Read error: {e}")
             traceback.print_exc()
             continue
-    
 
+
+def controller(serial_device,baudrate,timeout):
+    
+    tap_cli = TAP_CLI(port=serial_device,baudrate=baudrate,timeout=timeout)
+    # Pick the first input device that looks like a controller
+    for path in list_devices():
+        dev = InputDevice(path)
+        print(dev.path, dev.name)
+        if "controller" in dev.name.lower() or "gamepad" in dev.name.lower() or "joystick" in dev.name.lower():
+            gamepad = dev
+            break
+    else:
+        raise RuntimeError("No controller found")
+
+    print("Using:", gamepad.path, gamepad.name)
+    
+    caps = dev.capabilities()
+    print("\n**Capabilities:**")
+    for cap_type in caps:
+        print(f"{cap_type}: {caps[cap_type]}")
+
+    axis = {
+    0: 'ls_x',      # ABS_X
+    1: 'ls_y',      # ABS_Y  
+    3: 'rs_x',      # ABS_RX
+    4: 'rs_y',      # ABS_RY
+    2: 'lt',        # ABS_Z (left trigger)
+    5: 'rt',        # ABS_RZ (right trigger)
+    16: 'dpad_x',   # ABS_HAT0X
+    17: 'dpad_y',   # ABS_HAT0Y
+    }
+
+    CENTER_TOLERANCE = 200  # adjust as needed
+    center = {
+        'ls_x': 0,
+        'ls_y': 0,
+        'rs_x': 0,
+        'rs_y': 0
+    }
+
+    tID = int(input("Select TargetID:"))
+    sID = int(input("Select SourceID:"))
+
+    try:
+        while True:
+            # Get snapshot TWICE per second
+            state = get_moment_state(gamepad)
+            
+            # Apply center/tolerance
+            for key in state:
+                if key != "lt" and key != "rt":
+                    value = state[key] - center[key]
+                    if abs(value) <= CENTER_TOLERANCE:
+                        value = 0
+                    state[key] = value
+            
+            if state['ls_x']== 0 and state['ls_y'] == 0 and state['rs_x']==0 and state['rs_y'] == 0 and state['lt'] == 0 and state['rt'] == 0:
+                pass
+            else:
+                #print(f"ls_x:{state['ls_x']:6} ls_y:{state['ls_y']:6} "
+                #f"rs_x:{state['rs_x']:6} rs_y:{state['rs_y']:6}"
+                #f"lt:{state['lt']:6} rt:{state['rt']:6}")
+
+                channels = [state['ls_x']+32768,state['rs_x']+32768,state['ls_y']+32768,state['rs_y']+32768,0x0000,0x0000,int(state['lt']*(65535/255)),int(state['rt']*(65535/255))]
+                payload = TAP.DirectCommandPayload(0x8000,channels)
+                tap_message = TAP.TAP_message(tID,sID,TAP.DIRECT_COMMAND,payload)
+                logger.debug(f"Message Bytes:\n{tap_message.debug()}")
+                logger.debug(f"Message Fields:\n{tap_message.object_debug()}")
+                tap_cli.send_TAP_message(tap_message.packed_message)
+                tap_message_r = tap_cli.read_TAP_message()
+                while 1:
+                    serial_line = tap_cli.serial.readline()
+                    print (serial_line) #for debug
+                    if len(serial_line) == 0:
+                        break
+                
+                logger.debug(f"Message Bytes:\n{tap_message_r.debug()}")
+                logger.debug(f"Message Fields:\n{tap_message_r.object_debug()}")
+
+            time.sleep(0.5)  # 2Hz
+
+    except KeyboardInterrupt:
+        pass
+
+
+def get_moment_state(gamepad):
+    try:
+        # Quick drain (non-blocking)
+        while True:
+            event = gamepad.read_one()
+            if event is None:
+                break
+    except BlockingIOError:
+        pass
+    
+    return {
+        'ls_x': gamepad.absinfo(0).value,           # ABS_X
+        'ls_y': gamepad.absinfo(1).value,           # ABS_Y
+        'rs_x': gamepad.absinfo(3).value,           # ABS_RX  
+        'rs_y': gamepad.absinfo(4).value,            # ABS_RY
+        'lt'  : gamepad.absinfo(2).value,
+        'rt'  : gamepad.absinfo(5).value
+    }
 
 
 if __name__ == '__main__':
