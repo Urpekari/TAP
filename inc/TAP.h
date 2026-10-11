@@ -83,7 +83,8 @@ class TAP{
         TAP_OK = 0,
         TAP_ERROR_CRC_MISMATCH = 1,
         TAP_ERROR_INVALID_LENGTH = 2,
-        TAP_ERROR_UNSUPPORTED_HEADER = 3
+        TAP_ERROR_UNSUPPORTED_HEADER = 3,
+        TAP_ERROR_READ_ERROR = 4
     };
 
     enum TAP_MESSAGE_TYPE : uint8_t {
